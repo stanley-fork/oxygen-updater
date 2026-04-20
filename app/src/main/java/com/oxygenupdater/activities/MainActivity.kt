@@ -2,7 +2,6 @@ package com.oxygenupdater.activities
 
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.content.res.Configuration.ORIENTATION_LANDSCAPE
 import android.graphics.Color
 import android.os.Build.VERSION.SDK_INT
 import android.os.Build.VERSION_CODES
@@ -10,7 +9,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.view.WindowInsets
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -22,7 +20,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,14 +50,12 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.core.os.postDelayed
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -79,7 +74,6 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.Purchase
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdRequest
-import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
@@ -117,10 +111,7 @@ import com.oxygenupdater.ui.CollapsingAppBar
 import com.oxygenupdater.ui.TopAppBar
 import com.oxygenupdater.ui.about.AboutScreen
 import com.oxygenupdater.ui.common.BannerAd
-import com.oxygenupdater.ui.common.adLoadListener
 import com.oxygenupdater.ui.common.buildAdRequest
-import com.oxygenupdater.ui.common.loadBannerAd
-import com.oxygenupdater.ui.common.rememberSaveableState
 import com.oxygenupdater.ui.common.rememberState
 import com.oxygenupdater.ui.device.DefaultDeviceName
 import com.oxygenupdater.ui.device.DeviceScreen
@@ -226,9 +217,6 @@ class MainActivity : AppCompatActivity() {
     private val billingViewModel: BillingViewModel by viewModels()
 
     private val validatePurchaseTimer = Timer()
-
-    @Volatile
-    private var bannerAdView: AdView? = null
 
     @Volatile
     private var interstitialAd: InterstitialAd? = null
@@ -668,33 +656,13 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 val showNavBar = isNavTypeBottomBar && isMainScreen
-                if (showAds) {
-                    val orientation = LocalConfiguration.current.orientation
-                    val density = LocalDensity.current.density
-                    var adLoaded by rememberSaveableState(false)
-                    BannerAd(
-                        adUnitId = BuildConfig.AD_BANNER_MAIN_ID,
-                        adWidth = remember(orientation) {
-                            val adWidthPx = if (SDK_INT >= VERSION_CODES.R) {
-                                val metrics = windowManager.currentWindowMetrics
-                                val insets = metrics.windowInsets.getInsets(WindowInsets.Type.systemBars())
 
-                                metrics.bounds.width() - (insets.right + insets.left)
-                            } else resources.displayMetrics.widthPixels
-
-                            /**
-                             * Note: keep in sync with
-                             * [androidx.compose.material3.tokens.NavigationRailCollapsedTokens.NarrowContainerWidth]
-                             * */
-                            val sideRailWidth = if (orientation == ORIENTATION_LANDSCAPE) 80 + 1 else 0
-                            (adWidthPx / density.fastCoerceAtLeast(1f)).toInt() - sideRailWidth
-                        },
-                        adListener = adLoadListener { adLoaded = it },
-                        onViewUpdate = ::onBannerAdInit,
-                        // We draw the activity edge-to-edge, so nav bar padding should be applied only if ad loaded
-                        modifier = if (!showNavBar && adLoaded) Modifier.navigationBarsPadding() else Modifier
-                    )
-                }
+                /** Load only if [setupMobileAds] has been called via [setupUmp] */
+                if (showAds && mobileAdsInitDone.get()) BannerAd(
+                    activity = this@MainActivity,
+                    navType = navType,
+                    addNavBarPadding = !showNavBar,
+                )
 
                 AnimatedVisibility(showNavBar) {
                     MainNavigationBar(
@@ -1140,19 +1108,6 @@ class MainActivity : AppCompatActivity() {
         if (consentInformation.canRequestAds()) setupMobileAds()
     }
 
-    private fun onBannerAdInit(adView: AdView) {
-        bannerAdView?.let {
-            // Destroy previous AdView if it changed
-            if (it != adView) it.destroy()
-        }
-
-        // Only one will be active at any time, so update reference
-        bannerAdView = adView
-
-        /** Load only if [setupMobileAds] has been called via [setupUmp] */
-        if (mobileAdsInitDone.get()) loadBannerAd(bannerAdView)
-    }
-
     private val mobileAdsInitDone = AtomicBoolean(false)
     private fun setupMobileAds() {
         if (mobileAdsInitDone.get()) return else mobileAdsInitDone.set(true)
@@ -1161,6 +1116,7 @@ class MainActivity : AppCompatActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             MobileAds.initialize(this@MainActivity) {
                 // Adapter init complete
+
                 if (BuildConfig.DEBUG) it.adapterStatusMap.forEach { (adapterClass, status) ->
                     logDebug(
                         TAG,
@@ -1201,9 +1157,6 @@ class MainActivity : AppCompatActivity() {
                 }
             })
         }.build())
-
-        // Init complete
-        loadBannerAd(bannerAdView)
     }
 
     /** Required because we use `android:launchMode="singleTask"` in AndroidManifest.xml */
@@ -1213,16 +1166,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onResume() = super.onResume().also {
-        bannerAdView?.resume()
         viewModel.checkForStalledAppUpdate()
     }
 
-    override fun onPause() = super.onPause().also {
-        bannerAdView?.pause()
-    }
-
     override fun onDestroy() = super.onDestroy().also {
-        bannerAdView?.destroy()
         viewModel.maybePruneWork()
         viewModel.unregisterAppUpdateListener()
     }

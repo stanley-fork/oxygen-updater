@@ -1,55 +1,128 @@
 package com.oxygenupdater.ui.common
 
+import android.app.Activity
+import android.os.Build.VERSION.SDK_INT
+import android.os.Build.VERSION_CODES
 import android.os.Bundle
+import android.view.WindowInsets
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.google.ads.mediation.admob.AdMobAdapter
 import com.google.android.gms.ads.AdListener
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.LoadAdError
+import com.oxygenupdater.BuildConfig
+import com.oxygenupdater.ui.main.NavType
 import com.oxygenupdater.utils.logDebug
 
 /**
- * Lays out an [AdView]. Note that [AdView.loadAd] is not called in the factory
- * block here. Instead, call it via the reference received from [onViewUpdate].
+ * Lays out an [AdView]. Responsible for calculating the appropriate size, creating the [AdView]
+ * with the correct configuration, and finally loading the ad itself.
  *
- * @param adListener act on ad callbacks, usually via [adLoadListener]
+ * [AdView.pause], [AdView.resume], and [AdView.destroy] are called when necessary, via Compose
+ * [LifecycleResumeEffect] and [DisposableEffect].
  *
- * @see com.oxygenupdater.activities.MainActivity.onBannerAdInit
+ * @param activity AdMob recommends an [Activity] context: https://developers.google.com/admob/android/mediation#initialize_your_ad_object_with_an_activity_instance
+ * @param addNavBarPadding flag to control if we should add [navigationBarsPadding]
  */
 @Composable
 fun ColumnScope.BannerAd(
-    adUnitId: String,
-    adWidth: Int, // dp
-    modifier: Modifier = Modifier,
-    adListener: AdListener? = null,
-    onViewUpdate: (AdView) -> Unit,
-) = if (LocalInspectionMode.current) {
+    activity: Activity,
+    navType: NavType,
+    addNavBarPadding: Boolean,
+): Unit = if (LocalInspectionMode.current) {
     Text("AdView", Modifier.align(Alignment.CenterHorizontally))
-} else AndroidView(
-    factory = { context ->
-        AdView(context).apply {
-            setAdUnitId(adUnitId)
-            /**
-             * TODO(compose/ads): factory block doesn't execute again when [adWidth] changes,
-             *  meaning [AdView.setAdSize] is never updated. Ideally we want it to, and also
-             *  have the ad reloaded for an orientation change.
-             */
-            setAdSize(AdSize.getLargeAnchoredAdaptiveBannerAdSize(context, adWidth))
+} else {
+    var loaded by rememberState(false)
 
-            adListener?.let { setAdListener(it) }
+    val density = LocalDensity.current.density
+    val adSize = remember(navType) {
+        val adWidthPx = if (SDK_INT >= VERSION_CODES.R) {
+            val metrics = activity.windowManager.currentWindowMetrics
+            val insets = metrics.windowInsets.getInsets(WindowInsets.Type.systemBars())
+
+            metrics.bounds.width() - (insets.right + insets.left)
+        } else activity.resources.displayMetrics.widthPixels
+
+        /**
+         * Note: keep in sync with
+         * [androidx.compose.material3.tokens.NavigationRailCollapsedTokens.NarrowContainerWidth]
+         * */
+        val sideRailWidth = if (navType == NavType.SideRail) 80 + 1 else 0
+        val adWidth = (adWidthPx / density.fastCoerceAtLeast(1f)).toInt() - sideRailWidth
+
+        /**
+         * TODO(ads): [AdView.setAdSize] can only be called once per [AdView], which means we can't
+         *  update its size when [navType] changes. Figure out how to discard the old one and reload.
+         */
+        AdSize.getLargeAnchoredAdaptiveBannerAdSize(activity, adWidth)
+    }
+
+    val adView = remember {
+        AdView(activity).apply {
+            // Both of these can only be set once per AdView
+            adUnitId = BuildConfig.AD_BANNER_MAIN_ID
+            setAdSize(adSize).also { logDebug(TAG, "Requested size: $adSize") }
+
+            adListener = object : AdListener() {
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    loaded = false
+                    logDebug(TAG, "Banner ad failed to load: $error")
+                }
+
+                override fun onAdLoaded() {
+                    loaded = true
+                    val adapterResponseInfo = responseInfo?.loadedAdapterResponseInfo
+                    val adapterClassName = adapterResponseInfo?.adapterClassName
+                    val adSourceName = adapterResponseInfo?.adSourceName
+                    val latencyMillis = adapterResponseInfo?.latencyMillis
+                    logDebug(TAG, "$adapterClassName: LOADED $adSourceName $adSize ($latencyMillis ms)")
+                }
+            }
         }
-    },
-    update = onViewUpdate,
-    modifier = modifier
-)
+    }
+
+    LaunchedEffect(Unit) {
+        logDebug(TAG, "Loading")
+        adView.loadAd(buildAdRequest())
+    }
+
+    AndroidView(
+        factory = { adView },
+        // We draw the activity edge-to-edge, so nav bar padding should be applied only if ad loaded
+        modifier = (if (addNavBarPadding && loaded) Modifier.navigationBarsPadding() else Modifier)
+            .align(Alignment.CenterHorizontally)
+            .wrapContentSize()
+    )
+
+    // Pause and resume the AdView when the lifecycle is paused and resumed
+    LifecycleResumeEffect(adView) {
+        adView.resume()
+        onPauseOrDispose { adView.pause() }
+    }
+
+    DisposableEffect(Unit) {
+        // Destroy the AdView to prevent memory leaks when the screen is disposed
+        onDispose { adView.destroy() }
+    }
+}
 
 /**
  * @param collapsibleBanner Default `false`. Controls whether we use Google's new collapsible
@@ -73,21 +146,5 @@ inline fun buildAdRequest(
         putString("collapsible", "bottom")
     })
 }.build()
-
-fun loadBannerAd(adView: AdView?) = adView?.loadAd(buildAdRequest())?.also {
-    logDebug(TAG, "loading")
-} ?: logDebug(TAG, "adView = null")
-
-fun adLoadListener(callback: (loaded: Boolean) -> Unit) = object : AdListener() {
-    override fun onAdFailedToLoad(error: LoadAdError) {
-        logDebug(TAG, "Banner ad failed to load: $error")
-        callback(false)
-    }
-
-    override fun onAdLoaded() {
-        logDebug(TAG, "Banner ad loaded")
-        callback(true)
-    }
-}
 
 private const val TAG = "BannerAd"
