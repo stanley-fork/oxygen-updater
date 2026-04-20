@@ -195,7 +195,10 @@ import com.oxygenupdater.workers.WorkDataDownloadFailureType
 import com.oxygenupdater.workers.WorkDataDownloadProgress
 import com.oxygenupdater.workers.WorkDataDownloadTotalBytes
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.math.BigInteger
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
@@ -1154,10 +1157,31 @@ class MainActivity : AppCompatActivity() {
     private fun setupMobileAds() {
         if (mobileAdsInitDone.get()) return else mobileAdsInitDone.set(true)
 
-        MobileAds.initialize(this)
-        MobileAds.setRequestConfiguration(MobileAds.getRequestConfiguration().toBuilder().apply {
+        // Init Google Mobile Ads SDK on a background thread
+        CoroutineScope(Dispatchers.IO).launch {
+            MobileAds.initialize(this@MainActivity) {
+                // Adapter init complete
+                if (BuildConfig.DEBUG) it.adapterStatusMap.forEach { (adapterClass, status) ->
+                    logDebug(
+                        TAG,
+                        "$adapterClass: ${status.description.ifEmpty { status.initializationState.name }} (${status.latency}ms)"
+                    )
+                }
+            }
+
+            // This must be called *after* `MobileAds.initialize()`, so it's kept in this coroutine block.
+            // By default video ads run at device volume, which could be annoying
+            // to some users. We're reducing ad volume to be 10% of device volume.
+            // Note that this doesn't always guarantee that ads will run at a
+            // reduced volume. This is either a longstanding SDK bug or due to
+            // an undocumented behaviour.
+            MobileAds.setAppVolume(0.1f)
+        }
+        // SDK init complete, but adapters may be pending
+
+        if (BuildConfig.DEBUG) MobileAds.setRequestConfiguration(MobileAds.getRequestConfiguration().toBuilder().apply {
             // If it's a debug build, add current device's ID to the list of test device IDs for ads
-            if (BuildConfig.DEBUG) setTestDeviceIds(buildList(2) {
+            setTestDeviceIds(buildList(2) {
                 /** (uppercase) MD5 checksum of "emulator" */
                 add(AdRequest.DEVICE_ID_EMULATOR)
 
@@ -1177,13 +1201,6 @@ class MainActivity : AppCompatActivity() {
                 }
             })
         }.build())
-
-        // By default video ads run at device volume, which could be annoying
-        // to some users. We're reducing ad volume to be 10% of device volume.
-        // Note that this doesn't always guarantee that ads will run at a
-        // reduced volume. This is either a longstanding SDK bug or due to
-        // an undocumented behaviour.
-        MobileAds.setAppVolume(0.1f)
 
         // Init complete
         loadBannerAd(bannerAdView)
