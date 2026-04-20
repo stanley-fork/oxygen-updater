@@ -40,12 +40,14 @@ import com.oxygenupdater.utils.logDebug
  * [LifecycleResumeEffect] and [DisposableEffect].
  *
  * @param activity AdMob recommends an [Activity] context: https://developers.google.com/admob/android/mediation#initialize_your_ad_object_with_an_activity_instance
+ * @param forceAdReload trick to force a reload if necessary
  * @param addNavBarPadding flag to control if we should add [navigationBarsPadding]
  */
 @Composable
 fun ColumnScope.BannerAd(
     activity: Activity,
     navType: NavType,
+    forceAdReload: Boolean,
     addNavBarPadding: Boolean,
 ): Unit = if (LocalInspectionMode.current) {
     Text("AdView", Modifier.align(Alignment.CenterHorizontally))
@@ -99,7 +101,12 @@ fun ColumnScope.BannerAd(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(forceAdReload) {
+        if (loaded || adView.isLoading) {
+            logDebug(TAG, "Skipping load, previous is pending (loaded=$loaded, adViewIsLoading: ${adView.isLoading})")
+            return@LaunchedEffect
+        }
+
         logDebug(TAG, "Loading")
         adView.loadAd(buildAdRequest())
     }

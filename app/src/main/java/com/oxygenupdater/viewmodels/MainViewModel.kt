@@ -129,6 +129,9 @@ class MainViewModel @Inject constructor(
 
     var shouldShowOnboarding by mutableStateOf(!sharedPreferences[KeySetupDone, false])
 
+    /** @see [com.oxygenupdater.ui.common.BannerAd] */
+    var forceAdReload by mutableStateOf(false)
+
     val canShowNotifPermissionSheet = !sharedPreferences[KeyIgnoreNotificationPermissionSheet, false]
 
     val shouldShowUnsupportedDeviceDialog

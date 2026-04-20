@@ -661,6 +661,7 @@ class MainActivity : AppCompatActivity() {
                 if (showAds && mobileAdsInitDone.get()) BannerAd(
                     activity = this@MainActivity,
                     navType = navType,
+                    forceAdReload = viewModel.forceAdReload,
                     addNavBarPadding = !showNavBar,
                 )
 
@@ -1116,6 +1117,8 @@ class MainActivity : AppCompatActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             MobileAds.initialize(this@MainActivity) {
                 // Adapter init complete
+                // If the banner ad hasn't yet loaded (or failed to), try again after adapter init
+                viewModel.forceAdReload = !viewModel.forceAdReload
 
                 if (BuildConfig.DEBUG) it.adapterStatusMap.forEach { (adapterClass, status) ->
                     logDebug(
