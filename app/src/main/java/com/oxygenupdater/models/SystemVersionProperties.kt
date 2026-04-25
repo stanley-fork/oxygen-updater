@@ -226,8 +226,8 @@ object SystemVersionProperties {
                     // builds for 7- & 7T-series on OOS12. This affects H.31/H.30 & F.17 builds, where the same
                     // model number is used for both regions. Not sure if future builds would also be affected.
                     if (pipeline.startsWith("IN")) deviceProductName += "_IN"
-                } else if ("oppo" == brandLowercase) {
-                    // Special handling for OPPO phones. They often use the same model number across all regions.
+                } else if ("oppo" == brandLowercase || "realme" == brandLowercase) {
+                    // Special handling for OPPO/realme phones. They often use the same model number across all regions.
                     // Append pipeline to model number, only if it's not already part of it. A quick check is to
                     // see if the last character is a digit, since pipelines are almost exclusively alphabets.
                     val lastChar = deviceProductName.lastOrNull() ?: '0'
@@ -329,8 +329,8 @@ object SystemVersionProperties {
                         // builds for 7- & 7T-series on OOS12. This affects H.31/H.30 & F.17 builds, where the same
                         // model number is used for both regions. Not sure if future builds would also be affected.
                         if (pipeline.startsWith("IN")) deviceProductName += "_IN"
-                    } else if ("oppo" == brandLowercase) {
-                        // Special handling for OPPO phones. They often use the same model number across all regions.
+                    } else if ("oppo" == brandLowercase || "realme" == brandLowercase) {
+                        // Special handling for OPPO/realme phones. They often use the same model number across all regions.
                         // Append pipeline to model number, only if it's not already part of it. A quick check is to
                         // see if the last character is a digit, since pipelines are almost exclusively alphabets.
                         val lastChar = deviceProductName.lastOrNull() ?: '0'

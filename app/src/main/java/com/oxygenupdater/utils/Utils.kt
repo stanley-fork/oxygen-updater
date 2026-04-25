@@ -62,7 +62,7 @@ object Utils {
             it.trim()
         }
         val firmwareIsSupported = fingerprintParts.size == 6
-                && fingerprintParts[0].lowercase().let { it == "oneplus" || it == "oppo" }
+                && fingerprintParts[0].lowercase().let { it == "oneplus" || it == "oppo" || it == "realme" }
                 // must be `contains` and not a direct equality check
                 && fingerprintParts[5].lowercase().contains("release-keys")
 

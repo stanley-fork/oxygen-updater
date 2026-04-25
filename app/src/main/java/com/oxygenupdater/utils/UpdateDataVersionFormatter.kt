@@ -64,6 +64,7 @@ object UpdateDataVersionFormatter {
     ) = getFormattedVersionNumber(
         osPrefix = when (SystemVersionProperties.brandLowercase) {
             "oppo" -> "ColorOS " // space must be kept
+            "realme" -> "realme UI " // space must be kept
             "oneplus" -> "OxygenOS " // space must be kept
             else -> ""
         },
